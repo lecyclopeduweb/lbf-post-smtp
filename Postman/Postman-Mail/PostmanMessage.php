@@ -251,9 +251,19 @@ if ( ! class_exists( 'PostmanMessage' ) ) {
 		 * Throw an exception if an error is found
 		 */
 		private function internalValidate() {
-			// check the reply-to address for errors
+			// Invalid Reply-To must not abort the whole send (ERROR).
+			// Drop it and continue — typically comes from a bad form/header source.
 			if ( isset( $this->replyTo ) ) {
-				$this->getReplyTo()->validate( 'Reply-To' );
+				$replyToEmail = $this->getReplyTo()->getEmail();
+				if ( ! PostmanUtils::validateEmail( $replyToEmail ) ) {
+					$this->logger->warn(
+						sprintf(
+							'Invalid "Reply-To" e-mail address "%s" — dropping Reply-To and continuing send.',
+							$replyToEmail
+						)
+					);
+					$this->replyTo = null;
+				}
 			}
 
 			// check the from address for errors
@@ -450,12 +460,15 @@ if ( ! class_exists( 'PostmanMessage' ) ) {
 					break;
 				case 'reply-to' :
 					$this->logProcessHeader( 'Reply-To', $name, $content );
-                    $pattern = '/[a-z0-9_\-\+\.]+@[a-z0-9\-]+\.([a-z]{2,4})(?:\.[a-z]{2})?/i';
-                    preg_match_all($pattern, $content, $matches);
-
-                    if ( isset( $matches[0] ) && isset( $matches[0][0] ) && filter_var( $matches[0][0], FILTER_VALIDATE_EMAIL ) ) {
-                        $this->setReplyTo( $content );
-                    }
+					// Validate the *full* parsed address. The previous regex could match a
+					// valid substring (e.g. user@gmail.com) then still set the raw invalid
+					// content (e.g. user@gmail.comc), which later threw an ERROR.
+					$candidate = new PostmanEmailAddress( $content );
+					if ( PostmanUtils::validateEmail( $candidate->getEmail() ) ) {
+						$this->setReplyTo( $content );
+					} else {
+						$this->logger->warn( sprintf( 'Ignoring invalid Reply-To header \'%s\'', $content ) );
+					}
 
 					break;
 				case 'sender' :
@@ -543,7 +556,12 @@ if ( ! class_exists( 'PostmanMessage' ) ) {
 		}
 		function setReplyTo( $replyTo ) {
 			if ( ! empty( $replyTo ) ) {
-				$this->replyTo = new PostmanEmailAddress( $replyTo );
+				$address = new PostmanEmailAddress( $replyTo );
+				if ( PostmanUtils::validateEmail( $address->getEmail() ) ) {
+					$this->replyTo = $address;
+				} else {
+					$this->logger->warn( sprintf( 'Ignoring invalid Reply-To address \'%s\'', $address->getEmail() ) );
+				}
 			}
 		}
 		function setMessageId( $messageId ) {

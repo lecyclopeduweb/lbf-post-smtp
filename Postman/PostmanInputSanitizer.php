@@ -75,7 +75,18 @@ if ( ! class_exists( 'PostmanInputSanitizer' ) ) {
 			$this->sanitizePassword( 'ElasticEmail API Key', PostmanOptions::ELASTICEMAIL_API_KEY, $input, $new_input, $this->options->getElasticEmailApiKey() );
 			$this->sanitizePassword( 'Smtp2go Api Key', PostmanOptions::SMTP2GO_API_KEY, $input, $new_input, $this->options->getSmtp2goApiKey() );
 			$this->sanitizeString( 'Mailgun Domain Name', PostmanOptions::MAILGUN_DOMAIN_NAME, $input, $new_input );
-			$this->sanitizeString( 'Reply-To', PostmanOptions::REPLY_TO, $input, $new_input );
+			// Reply-To must be a valid email (or empty). Invalid values caused ERROR
+			// "Invalid Reply-To e-mail address" and aborted sends.
+			if ( isset( $input[ PostmanOptions::REPLY_TO ] ) ) {
+				$reply_to = sanitize_text_field( trim( $input[ PostmanOptions::REPLY_TO ] ) );
+				if ( $reply_to === '' || PostmanUtils::validateEmail( $reply_to ) ) {
+					$new_input[ PostmanOptions::REPLY_TO ] = $reply_to;
+				} else {
+					$this->logger->warn( 'Invalid Reply-To discarded from settings: ' . $reply_to );
+					$new_input[ PostmanOptions::REPLY_TO ] = '';
+					$success = false;
+				}
+			}
 			$this->sanitizeString( 'From Name Override', PostmanOptions::PREVENT_MESSAGE_SENDER_NAME_OVERRIDE, $input, $new_input );
 			$this->sanitizeString( 'From Email Override', PostmanOptions::PREVENT_MESSAGE_SENDER_EMAIL_OVERRIDE, $input, $new_input );
 			$this->sanitizeString( 'Disable Email Validation', PostmanOptions::DISABLE_EMAIL_VALIDAITON, $input, $new_input );
